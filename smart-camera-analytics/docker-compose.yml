@@ -1,0 +1,96 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: sca_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sca_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sca_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-sca_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sca_user} -d ${POSTGRES_DB:-sca_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # FastAPI Backend
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sca_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sca_user}:${POSTGRES_PASSWORD:-sca_secret}@db:5432/${POSTGRES_DB:-sca_db}
+      SECRET_KEY: ${SECRET_KEY:-changeme-in-production-please}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ─────────────────────────────────────────────
+  # CV Worker (Computer Vision)
+  # ─────────────────────────────────────────────
+  cv-worker:
+    build:
+      context: ./cv-worker
+      dockerfile: Dockerfile
+    container_name: sca_cv_worker
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      CAMERA_ID: ${CV_CAMERA_ID:-1}
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-0}
+    depends_on:
+      - backend
+    volumes:
+      - ./cv-worker:/app
+      - ./videos:/videos:ro   # mount local video files for testing
+    # Remove `profiles` to always start, or keep to start manually:
+    profiles:
+      - worker
+
+  # ─────────────────────────────────────────────
+  # React Frontend
+  # ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sca_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: sca_network

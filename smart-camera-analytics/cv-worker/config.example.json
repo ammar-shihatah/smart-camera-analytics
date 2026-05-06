@@ -1,0 +1,25 @@
+{
+  "backend_url": "http://localhost:8000",
+  "camera_id": 1,
+
+  "video_source": "0",
+  "_video_source_notes": [
+    "0              → webcam (default)",
+    "/videos/test.mp4 → local video file",
+    "rtsp://user:pass@192.168.1.100:554/stream1 → IP camera RTSP"
+  ],
+
+  "yolo_model": "yolov8n.pt",
+  "_yolo_model_notes": [
+    "yolov8n.pt → Nano (fastest, least accurate)",
+    "yolov8s.pt → Small (balanced)",
+    "yolov8m.pt → Medium (slower, more accurate)"
+  ],
+
+  "confidence_threshold": 0.4,
+  "send_interval_seconds": 1.5,
+  "frame_skip": 2,
+  "show_preview": true,
+  "max_tracker_distance": 80,
+  "max_tracker_disappeared": 25
+}
