@@ -1,0 +1,5 @@
+{
+  "buildCommand": "cd smart-camera-analytics/frontend && npm install && npm run build",
+  "outputDirectory": "smart-camera-analytics/frontend/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
