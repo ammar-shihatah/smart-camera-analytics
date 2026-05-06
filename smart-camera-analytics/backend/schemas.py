@@ -211,8 +211,22 @@ class UserOut(BaseModel):
     name: str
     email: str
     role: str
+    is_active: bool
+    must_change_pw: bool
+    last_login: Optional[datetime]
     created_at: datetime
     model_config = {"from_attributes": True}
+
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "viewer"
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class AuditLogOut(BaseModel):
     id: int
@@ -221,3 +235,27 @@ class AuditLogOut(BaseModel):
     details_json: Optional[Any]
     created_at: datetime
     model_config = {"from_attributes": True}
+
+
+# ─────────────────────────────────────────────
+# AUTH
+# ─────────────────────────────────────────────
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str

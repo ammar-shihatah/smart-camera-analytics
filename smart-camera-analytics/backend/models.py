@@ -129,11 +129,15 @@ class Alert(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id:         Mapped[int]      = mapped_column(Integer, primary_key=True, index=True)
-    name:       Mapped[str]      = mapped_column(String(255), nullable=False)
-    email:      Mapped[str]      = mapped_column(String(255), unique=True, nullable=False)
-    role:       Mapped[str]      = mapped_column(String(50), default="viewer")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    id:             Mapped[int]               = mapped_column(Integer, primary_key=True, index=True)
+    name:           Mapped[str]               = mapped_column(String(255), nullable=False)
+    email:          Mapped[str]               = mapped_column(String(255), unique=True, nullable=False, index=True)
+    password_hash:  Mapped[Optional[str]]     = mapped_column(Text, nullable=True)
+    role:           Mapped[str]               = mapped_column(String(50), default="viewer")
+    is_active:      Mapped[bool]              = mapped_column(Boolean, default=True)
+    must_change_pw: Mapped[bool]              = mapped_column(Boolean, default=False)
+    last_login:     Mapped[Optional[datetime]]= mapped_column(DateTime(timezone=True), nullable=True)
+    created_at:     Mapped[datetime]          = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AuditLog(Base):

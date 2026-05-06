@@ -132,12 +132,19 @@ CREATE INDEX idx_alerts_resolved ON alerts(resolved_at);
 -- USERS
 -- ─────────────────────────────────────────────
 CREATE TABLE users (
-    id         SERIAL PRIMARY KEY,
-    name       VARCHAR(255) NOT NULL,
-    email      VARCHAR(255) UNIQUE NOT NULL,
-    role       VARCHAR(50) DEFAULT 'viewer' CHECK (role IN ('admin','manager','viewer')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id             SERIAL PRIMARY KEY,
+    name           VARCHAR(255) NOT NULL,
+    email          VARCHAR(255) UNIQUE NOT NULL,
+    password_hash  TEXT,
+    role           VARCHAR(50) DEFAULT 'viewer'
+                   CHECK (role IN ('super_admin','admin','branch_manager','operations_manager','receptionist','viewer')),
+    is_active      BOOLEAN DEFAULT TRUE,
+    must_change_pw BOOLEAN DEFAULT FALSE,
+    last_login     TIMESTAMP WITH TIME ZONE,
+    created_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX idx_users_email ON users(email);
 
 -- ─────────────────────────────────────────────
 -- AUDIT LOGS
@@ -184,9 +191,8 @@ INSERT INTO zones (camera_id, name, type, polygon_json) VALUES
     (1, 'Waiting Zone',  'waiting',  '[[0,240],[640,240],[640,480],[0,480]]'),
     (2, 'Service Counter','counter', '[[100,100],[500,100],[500,400],[100,400]]');
 
-INSERT INTO users (name, email, role) VALUES
-    ('Admin User', 'admin@example.com', 'admin'),
-    ('Manager',    'manager@example.com', 'manager');
+-- Default admin — password is "Admin@1234" (hashed by backend on first start)
+-- The backend seeds this automatically if no users exist.
 
 INSERT INTO alerts (camera_id, zone_id, type, severity, message) VALUES
     (1, 3, 'crowd_alert',   'warning',  'High crowd density in Waiting Zone'),
