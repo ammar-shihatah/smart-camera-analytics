@@ -8,6 +8,8 @@ export default function Cameras() {
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [showAddBranch, setShowAddBranch] = useState(false)
+  const [branchForm, setBranchForm] = useState({ name: '', location: '' })
   const [form, setForm] = useState({ branch_id: '', name: '', stream_url: '', status: 'offline' })
 
   const load = async () => {
@@ -21,6 +23,19 @@ export default function Cameras() {
   }
 
   useEffect(() => { load() }, [])
+
+  const addBranch = async () => {
+    if (!branchForm.name) return
+    try {
+      const newBranch = await api.createBranch(branchForm)
+      setShowAddBranch(false)
+      setBranchForm({ name: '', location: '' })
+      await load()
+      setForm(p => ({ ...p, branch_id: String(newBranch.id) }))
+    } catch (e) {
+      alert('Failed to create branch: ' + e.message)
+    }
+  }
 
   const addCamera = async () => {
     if (!form.name || !form.branch_id) return
@@ -50,13 +65,53 @@ export default function Cameras() {
             Manage camera feeds and stream configurations
           </div>
         </div>
-        <button onClick={() => setShowAdd(true)} style={{
-          background: 'var(--accent)', color: '#000', border: 'none',
-          borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', fontSize: 14,
-        }}>+ Add Camera</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setShowAddBranch(true)} style={{
+            background: 'none', color: 'var(--text)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+          }}>+ Add Branch</button>
+          <button onClick={() => setShowAdd(true)} style={{
+            background: 'var(--accent)', color: '#000', border: 'none',
+            borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', fontSize: 14,
+          }}>+ Add Camera</button>
+        </div>
       </div>
 
-      {/* Add modal */}
+      {/* Add Branch modal */}
+      {showAddBranch && (
+        <div style={{
+          position: 'fixed', inset: 0, background: '#00000080', zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowAddBranch(false)}>
+          <div style={{
+            background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14,
+            padding: 32, width: 380, maxWidth: '90vw',
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 20px', fontSize: 18 }}>Add Branch</h2>
+            {[
+              { key: 'name', label: 'Branch Name', placeholder: 'Main Branch' },
+              { key: 'location', label: 'Location', placeholder: 'Riyadh, KSA' },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontFamily: 'Space Mono' }}>
+                  {f.label}
+                </label>
+                <input
+                  value={branchForm[f.key]} onChange={e => setBranchForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 14 }}
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => setShowAddBranch(false)} style={{ padding: '9px 18px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--muted)', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={addBranch} style={{ padding: '9px 18px', background: 'var(--accent)', border: 'none', borderRadius: 8, color: '#000', fontWeight: 700, cursor: 'pointer' }}>Create Branch</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Camera modal */}
       {showAdd && (
         <div style={{
           position: 'fixed', inset: 0, background: '#00000080', zIndex: 100,
@@ -83,12 +138,27 @@ export default function Cameras() {
               </div>
             ))}
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontFamily: 'Space Mono' }}>Branch</label>
-              <select value={form.branch_id} onChange={e => setForm(p => ({ ...p, branch_id: e.target.value }))}
-                style={{ width: '100%', padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 14 }}>
-                <option value="">Select branch...</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <label style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'Space Mono' }}>Branch</label>
+                <button onClick={() => { setShowAdd(false); setShowAddBranch(true) }} style={{
+                  fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none',
+                  cursor: 'pointer', padding: 0, fontFamily: 'Space Mono',
+                }}>+ New Branch</button>
+              </div>
+              {branches.length === 0 ? (
+                <div style={{
+                  padding: '12px', background: '#ffd16610', border: '1px solid #ffd16640',
+                  borderRadius: 8, fontSize: 12, color: '#ffd166', textAlign: 'center',
+                }}>
+                  No branches yet — create one first
+                </div>
+              ) : (
+                <select value={form.branch_id} onChange={e => setForm(p => ({ ...p, branch_id: e.target.value }))}
+                  style={{ width: '100%', padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 14 }}>
+                  <option value="">Select branch...</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
               <button onClick={() => setShowAdd(false)} style={{ padding: '9px 18px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--muted)', cursor: 'pointer' }}>Cancel</button>
