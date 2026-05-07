@@ -14,5 +14,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.9
 aiofiles==23.2.1
+# OpenCV — headless (no GUI), compatible with numpy < 2.0
 opencv-python-headless==4.9.0.80
-numpy>=1.24.0
+# Pin numpy below 2.0 — OpenCV 4.9 is not compatible with numpy 2.x
+numpy>=1.24.0,<2.0.0

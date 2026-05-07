@@ -28,12 +28,23 @@ from websocket_manager import manager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ── OpenCV / streaming (optional — backend works without it) ──────────────────
+STREAM_AVAILABLE = False
+OPENCV_VERSION: Optional[str] = None
+_stream_import_error: str = ""
+
 try:
+    import cv2
+    OPENCV_VERSION = cv2.__version__
+    logger.info(f"✅ OpenCV {OPENCV_VERSION} loaded successfully")
     from stream_manager import mjpeg_generator, test_rtsp_sync, build_rtsp_url
     STREAM_AVAILABLE = True
 except ImportError as _e:
-    logger.warning(f"OpenCV not available — streaming disabled ({_e})")
-    STREAM_AVAILABLE = False
+    _stream_import_error = str(_e)
+    logger.warning(f"⚠️  OpenCV import failed — streaming disabled. Reason: {_e}")
+except Exception as _e:
+    _stream_import_error = str(_e)
+    logger.error(f"❌ Unexpected error loading OpenCV: {_e}", exc_info=True)
 
 # In-memory store for password reset tokens (use Redis in production)
 _reset_tokens: dict[str, int] = {}  # token → user_id
@@ -106,6 +117,27 @@ app.add_middleware(
 @app.get("/health", tags=["System"])
 async def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/system/health", tags=["System"])
+async def system_health():
+    """
+    Detailed system health — shows OpenCV status, FFmpeg, streaming availability.
+    Useful for diagnosing stream issues without looking at container logs.
+    """
+    import shutil
+
+    ffmpeg_available = shutil.which("ffmpeg") is not None
+
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "opencv_installed": STREAM_AVAILABLE,
+        "opencv_version": OPENCV_VERSION or "not installed",
+        "ffmpeg_available": ffmpeg_available,
+        "streaming_enabled": STREAM_AVAILABLE,
+        "stream_error": _stream_import_error if not STREAM_AVAILABLE else None,
+    }
 
 
 # ─────────────────────────────────────────────
