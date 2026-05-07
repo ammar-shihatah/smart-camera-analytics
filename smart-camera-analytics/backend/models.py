@@ -30,12 +30,16 @@ class Branch(Base):
 class Camera(Base):
     __tablename__ = "cameras"
 
-    id:         Mapped[int]           = mapped_column(Integer, primary_key=True, index=True)
-    branch_id:  Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("branches.id", ondelete="CASCADE"))
-    name:       Mapped[str]           = mapped_column(String(255), nullable=False)
-    stream_url: Mapped[Optional[str]] = mapped_column(Text)
-    status:     Mapped[str]           = mapped_column(String(50), default="offline")
-    created_at: Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=utcnow)
+    id:                 Mapped[int]               = mapped_column(Integer, primary_key=True, index=True)
+    branch_id:          Mapped[Optional[int]]     = mapped_column(Integer, ForeignKey("branches.id", ondelete="CASCADE"))
+    name:               Mapped[str]               = mapped_column(String(255), nullable=False)
+    stream_url:         Mapped[Optional[str]]     = mapped_column(Text)
+    cam_username:       Mapped[Optional[str]]     = mapped_column(String(255), nullable=True)
+    cam_password:       Mapped[Optional[str]]     = mapped_column(String(255), nullable=True)
+    status:             Mapped[str]               = mapped_column(String(50), default="offline")
+    last_error:         Mapped[Optional[str]]     = mapped_column(Text, nullable=True)
+    last_connected_at:  Mapped[Optional[datetime]]= mapped_column(DateTime(timezone=True), nullable=True)
+    created_at:         Mapped[datetime]          = mapped_column(DateTime(timezone=True), default=utcnow)
 
     branch:    Mapped[Optional["Branch"]] = relationship("Branch", back_populates="cameras")
     zones:     Mapped[list["Zone"]]       = relationship("Zone", back_populates="camera")

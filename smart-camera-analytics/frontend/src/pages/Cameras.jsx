@@ -10,7 +10,9 @@ export default function Cameras() {
   const [showAdd, setShowAdd] = useState(false)
   const [showAddBranch, setShowAddBranch] = useState(false)
   const [branchForm, setBranchForm] = useState({ name: '', location: '' })
-  const [form, setForm] = useState({ branch_id: '', name: '', stream_url: '', status: 'offline' })
+  const [form, setForm] = useState({ branch_id: '', name: '', stream_url: '', cam_username: '', cam_password: '', status: 'offline' })
+  const [testResults, setTestResults] = useState({})   // cameraId → result
+  const [testing, setTesting] = useState({})           // cameraId → bool
 
   const load = async () => {
     try {
@@ -34,6 +36,19 @@ export default function Cameras() {
       setForm(p => ({ ...p, branch_id: String(newBranch.id) }))
     } catch (e) {
       alert('Failed to create branch: ' + e.message)
+    }
+  }
+
+  const testConnection = async (camId) => {
+    setTesting(p => ({ ...p, [camId]: true }))
+    try {
+      const res = await api.testCameraConnection(camId)
+      setTestResults(p => ({ ...p, [camId]: res }))
+      if (res.success) load()
+    } catch (e) {
+      setTestResults(p => ({ ...p, [camId]: { success: false, error_message: e.message } }))
+    } finally {
+      setTesting(p => ({ ...p, [camId]: false }))
     }
   }
 
@@ -123,14 +138,17 @@ export default function Cameras() {
           }} onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px', fontSize: 18 }}>Add Camera</h2>
             {[
-              { key: 'name', label: 'Name', placeholder: 'Entrance Cam' },
-              { key: 'stream_url', label: 'Stream URL', placeholder: 'rtsp://... or leave empty' },
+              { key: 'name',         label: 'Name',       placeholder: 'Entrance Cam' },
+              { key: 'stream_url',   label: 'Stream URL', placeholder: 'rtsp://192.168.1.100:554/stream1' },
+              { key: 'cam_username', label: 'Username (optional)', placeholder: 'admin' },
+              { key: 'cam_password', label: 'Password (optional)', placeholder: '••••••••', type: 'password' },
             ].map(f => (
               <div key={f.key} style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontFamily: 'Space Mono' }}>
                   {f.label}
                 </label>
                 <input
+                  type={f.type || 'text'}
                   value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 14 }}
@@ -206,7 +224,7 @@ export default function Cameras() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 {['online', 'offline', 'maintenance'].map(s => (
                   <button key={s} onClick={() => updateStatus(cam.id, s)} style={{
                     padding: '5px 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer',
@@ -216,7 +234,35 @@ export default function Cameras() {
                     fontFamily: 'Space Mono',
                   }}>{s}</button>
                 ))}
+                <button onClick={() => testConnection(cam.id)} disabled={testing[cam.id]} style={{
+                  padding: '5px 12px', fontSize: 11, borderRadius: 6, cursor: 'pointer',
+                  background: '#00ff9d15', border: '1px solid #00ff9d40',
+                  color: '#00ff9d', fontFamily: 'Space Mono', marginLeft: 'auto',
+                }}>
+                  {testing[cam.id] ? '…' : '⚡ Test'}
+                </button>
               </div>
+
+              {/* Test result */}
+              {testResults[cam.id] && (
+                <div style={{
+                  background: testResults[cam.id].success ? '#00ff9d10' : '#ff4d6d10',
+                  border: `1px solid ${testResults[cam.id].success ? '#00ff9d30' : '#ff4d6d30'}`,
+                  borderRadius: 7, padding: '7px 10px', fontSize: 11,
+                }}>
+                  <div style={{ color: testResults[cam.id].success ? '#00ff9d' : '#ff4d6d', fontWeight: 600, marginBottom: 2 }}>
+                    {testResults[cam.id].success
+                      ? `✓ OK — ${testResults[cam.id].connection_time_ms}ms — ${testResults[cam.id].resolution}`
+                      : `✗ ${testResults[cam.id].connection_status || 'Failed'}`}
+                  </div>
+                  {testResults[cam.id].error_message && (
+                    <div style={{ color: 'var(--muted)', marginBottom: 2 }}>{testResults[cam.id].error_message}</div>
+                  )}
+                  {testResults[cam.id].suggested_fix && (
+                    <div style={{ color: '#ffd166' }}>💡 {testResults[cam.id].suggested_fix}</div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -28,12 +28,16 @@ class CameraCreate(BaseModel):
     branch_id: int
     name: str
     stream_url: Optional[str] = None
+    cam_username: Optional[str] = None
+    cam_password: Optional[str] = None
     status: Optional[str] = "offline"
 
 class CameraUpdate(BaseModel):
     status: Optional[str] = None
     name: Optional[str] = None
     stream_url: Optional[str] = None
+    cam_username: Optional[str] = None
+    cam_password: Optional[str] = None
 
 class CameraOut(BaseModel):
     id: int
@@ -41,8 +45,20 @@ class CameraOut(BaseModel):
     name: str
     stream_url: Optional[str]
     status: str
+    last_error: Optional[str] = None
+    last_connected_at: Optional[datetime] = None
     created_at: datetime
     model_config = {"from_attributes": True}
+
+class TestConnectionResult(BaseModel):
+    success: bool
+    connection_status: str
+    rtsp_reachable: bool
+    backend_can_open_stream: bool
+    error_message: Optional[str] = None
+    suggested_fix: Optional[str] = None
+    connection_time_ms: Optional[int] = None
+    resolution: Optional[str] = None
 
 
 # ─────────────────────────────────────────────

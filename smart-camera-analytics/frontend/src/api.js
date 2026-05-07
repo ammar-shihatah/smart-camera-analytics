@@ -63,11 +63,17 @@ export const api = {
   resolveAlert: (id)         => post(`/api/alerts/${id}/resolve`),
 
   // Cameras
-  cameras:          (branchId)  => get(`/api/cameras${branchId ? `?branch_id=${branchId}` : ''}`),
-  camera:           (id)        => get(`/api/cameras/${id}`),
-  createCamera:     (data)      => post('/api/cameras', data),
-  updateCamera:     (id, data)  => patch(`/api/cameras/${id}`, data),
-  cameraAnalytics:  (id)        => get(`/api/cameras/${id}/analytics`),
+  cameras:               (branchId) => get(`/api/cameras${branchId ? `?branch_id=${branchId}` : ''}`),
+  camera:                (id)       => get(`/api/cameras/${id}`),
+  createCamera:          (data)     => post('/api/cameras', data),
+  updateCamera:          (id, data) => patch(`/api/cameras/${id}`, data),
+  cameraAnalytics:       (id)       => get(`/api/cameras/${id}/analytics`),
+  testCameraConnection:  (id)       => get(`/api/cameras/${id}/test-connection`),
+  streamUrl:             (id)       => {
+    const token = localStorage.getItem('sca_token')
+    const BASE  = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    return `${BASE}/api/cameras/${id}/stream?token=${token}&fps=15`
+  },
 
   // Branches
   branches:     ()      => get('/api/branches'),

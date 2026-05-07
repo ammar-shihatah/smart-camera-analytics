@@ -2,6 +2,7 @@
 Smart Camera Behavior Analytics System - FastAPI Backend
 Privacy-first design: no face images, no identity, temp tracking IDs only.
 """
+import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -10,8 +11,11 @@ from typing import Optional, List
 
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from stream_manager import mjpeg_generator, test_rtsp_sync, build_rtsp_url
 
 import crud
 import schemas
@@ -34,6 +38,22 @@ _reset_tokens: dict[str, int] = {}  # token → user_id
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Safe migrations — add new columns if they don't exist
+        migrations = [
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS cam_username VARCHAR(255)",
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS cam_password VARCHAR(255)",
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS last_error TEXT",
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS last_connected_at TIMESTAMPTZ",
+            "ALTER TABLE users   ADD COLUMN IF NOT EXISTS is_active      BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE users   ADD COLUMN IF NOT EXISTS must_change_pw BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE users   ADD COLUMN IF NOT EXISTS last_login     TIMESTAMPTZ",
+            "ALTER TABLE users   ADD COLUMN IF NOT EXISTS password_hash  TEXT",
+        ]
+        for sql in migrations:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass
     logger.info("✅ Database tables ready")
 
     # Seed default super_admin if no users exist
@@ -312,6 +332,98 @@ async def update_camera(
     if not cam:
         raise HTTPException(404, detail="Camera not found")
     return cam
+
+
+# ─────────────────────────────────────────────
+# CAMERA STREAM  (RTSP → MJPEG proxy)
+# ─────────────────────────────────────────────
+@app.get("/api/cameras/{camera_id}/stream", tags=["Stream"])
+async def camera_stream(
+    camera_id: int,
+    token: Optional[str] = Query(None),
+    fps: int = Query(15, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    MJPEG stream proxy. Use as <img src="/api/cameras/{id}/stream?token=xxx">.
+    Converts RTSP → MJPEG so browsers can display it without plugins.
+    """
+    user = await _ws_auth(token, db)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+
+    cam = await crud.get_camera(db, camera_id)
+    if not cam:
+        raise HTTPException(404, "Camera not found")
+
+    return StreamingResponse(
+        mjpeg_generator(
+            stream_url=cam.stream_url or "",
+            username=cam.cam_username,
+            password=cam.cam_password,
+            fps=fps,
+        ),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-cache, no-store"},
+    )
+
+
+@app.get("/api/cameras/{camera_id}/test-connection", response_model=schemas.TestConnectionResult, tags=["Stream"])
+async def test_camera_connection(
+    camera_id: int,
+    current_user: User = Depends(require_permission("cameras.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Test RTSP connectivity from the backend server.
+    Returns detailed diagnostic info including suggested fixes.
+    """
+    cam = await crud.get_camera(db, camera_id)
+    if not cam:
+        raise HTTPException(404, "Camera not found")
+
+    if not cam.stream_url:
+        return schemas.TestConnectionResult(
+            success=False,
+            connection_status="no_url",
+            rtsp_reachable=False,
+            backend_can_open_stream=False,
+            error_message="No stream URL configured",
+            suggested_fix="Add an RTSP URL in camera settings",
+        )
+
+    url = build_rtsp_url(cam.stream_url, cam.cam_username, cam.cam_password)
+    loop = asyncio.get_event_loop()
+
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, test_rtsp_sync, url),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        result = {
+            "success": False,
+            "connection_status": "timeout",
+            "rtsp_reachable": False,
+            "backend_can_open_stream": False,
+            "error_message": "Connection timed out after 15 seconds",
+            "suggested_fix": "Check network route from server to camera IP. Ensure port 554 is open.",
+        }
+
+    # Persist status + last_error back to camera
+    cam.status = "online" if result["success"] else cam.status
+    cam.last_error = result.get("error_message") if not result["success"] else None
+    if result["success"]:
+        cam.last_connected_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    await crud.create_audit_log(
+        db, "camera.test_connection",
+        user_id=current_user.id,
+        details={"camera_id": camera_id, "result": result["connection_status"]},
+    )
+
+    return schemas.TestConnectionResult(**result)
 
 
 # ─────────────────────────────────────────────

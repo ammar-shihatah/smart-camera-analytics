@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sca_user}:${POSTGRES_PASSWORD:-sca_secret}@db:5432/${POSTGRES_DB:-sca_db}
-      SECRET_KEY: ${SECRET_KEY:-changeme-in-production-please}
+      SECRET_KEY: ${SECRET_KEY:-sca_secret}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
     ports:
       - "8000:8000"
