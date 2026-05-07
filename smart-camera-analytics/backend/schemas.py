@@ -241,7 +241,7 @@ class AuditLogOut(BaseModel):
 # AUTH
 # ─────────────────────────────────────────────
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class TokenResponse(BaseModel):
@@ -254,7 +254,7 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: str
 
 class ResetPasswordRequest(BaseModel):
     token: str

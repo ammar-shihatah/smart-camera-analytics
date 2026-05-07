@@ -23,7 +23,11 @@ export function AuthProvider({ children }) {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Login failed')
+      const detail = err.detail
+      const msg = Array.isArray(detail)
+        ? detail.map(d => d.msg || JSON.stringify(d)).join(', ')
+        : typeof detail === 'string' ? detail : 'Login failed'
+      throw new Error(msg)
     }
     const data = await res.json()
     localStorage.setItem(TOKEN_KEY, data.access_token)
