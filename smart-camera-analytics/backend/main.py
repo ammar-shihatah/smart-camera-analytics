@@ -15,8 +15,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from stream_manager import mjpeg_generator, test_rtsp_sync, build_rtsp_url
-
 import crud
 import schemas
 from auth import (
@@ -29,6 +27,13 @@ from websocket_manager import manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+try:
+    from stream_manager import mjpeg_generator, test_rtsp_sync, build_rtsp_url
+    STREAM_AVAILABLE = True
+except ImportError as _e:
+    logger.warning(f"OpenCV not available — streaming disabled ({_e})")
+    STREAM_AVAILABLE = False
 
 # In-memory store for password reset tokens (use Redis in production)
 _reset_tokens: dict[str, int] = {}  # token → user_id
@@ -338,7 +343,7 @@ async def update_camera(
 # CAMERA STREAM  (RTSP → MJPEG proxy)
 # ─────────────────────────────────────────────
 @app.get("/api/cameras/{camera_id}/stream", tags=["Stream"])
-async def camera_stream(
+async def camera_stream(  # noqa: C901
     camera_id: int,
     token: Optional[str] = Query(None),
     fps: int = Query(15, ge=1, le=30),
@@ -348,6 +353,9 @@ async def camera_stream(
     MJPEG stream proxy. Use as <img src="/api/cameras/{id}/stream?token=xxx">.
     Converts RTSP → MJPEG so browsers can display it without plugins.
     """
+    if not STREAM_AVAILABLE:
+        raise HTTPException(503, "Streaming not available — OpenCV not installed")
+
     user = await _ws_auth(token, db)
     if not user:
         raise HTTPException(401, "Authentication required")
@@ -369,7 +377,7 @@ async def camera_stream(
 
 
 @app.get("/api/cameras/{camera_id}/test-connection", response_model=schemas.TestConnectionResult, tags=["Stream"])
-async def test_camera_connection(
+async def test_camera_connection(  # noqa
     camera_id: int,
     current_user: User = Depends(require_permission("cameras.manage")),
     db: AsyncSession = Depends(get_db),
@@ -378,6 +386,9 @@ async def test_camera_connection(
     Test RTSP connectivity from the backend server.
     Returns detailed diagnostic info including suggested fixes.
     """
+    if not STREAM_AVAILABLE:
+        raise HTTPException(503, "Streaming not available — OpenCV not installed")
+
     cam = await crud.get_camera(db, camera_id)
     if not cam:
         raise HTTPException(404, "Camera not found")
