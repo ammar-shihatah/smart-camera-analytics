@@ -36,6 +36,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sca_user}:${POSTGRES_PASSWORD:-sca_secret}@db:5432/${POSTGRES_DB:-sca_db}
       SECRET_KEY: ${SECRET_KEY:-sca_secret}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      INGEST_API_KEY: ${INGEST_API_KEY:-sca-cv-worker-key-change-me}
+      # Force RTSP over TCP — UDP is unreliable through Docker's bridge network
+      OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp|stimeout;8000000"
+      # Max simultaneous browser streams the proxy will serve
+      MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-12}
     ports:
       - "8000:8000"
     depends_on:
@@ -43,6 +48,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+    # Lets the container reach an RTSP camera/test-server on the Docker host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   # ─────────────────────────────────────────────
@@ -58,6 +66,7 @@ services:
       BACKEND_URL: http://backend:8000
       CAMERA_ID: ${CV_CAMERA_ID:-1}
       VIDEO_SOURCE: ${VIDEO_SOURCE:-0}
+      INGEST_API_KEY: ${INGEST_API_KEY:-sca-cv-worker-key-change-me}
     depends_on:
       - backend
     volumes:

@@ -9,24 +9,34 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import os
 import crud
 import schemas
 from auth import (
     get_current_user, require_permission,
     hash_password, verify_password, create_access_token,
 )
+from crypto import decrypt_secret
 from database import get_db, engine
 from models import Base, User
 from websocket_manager import manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Max simultaneous browser MJPEG streams the proxy will serve
+MAX_CONCURRENT_STREAMS = int(os.getenv("MAX_CONCURRENT_STREAMS", "12"))
+_active_streams = 0
+_streams_lock = asyncio.Lock()
+
+# Shared secret the CV worker must present to push detection metadata
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "")
 
 # ── OpenCV / streaming (optional — backend works without it) ──────────────────
 STREAM_AVAILABLE = False
@@ -99,7 +109,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-import os
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 
 app.add_middleware(
@@ -410,13 +419,37 @@ async def camera_stream(  # noqa: C901
     if not cam:
         raise HTTPException(404, "Camera not found")
 
+    # Enforce a cap on concurrent streams to protect the server
+    global _active_streams
+    async with _streams_lock:
+        if _active_streams >= MAX_CONCURRENT_STREAMS:
+            raise HTTPException(
+                503,
+                f"Server is at capacity ({MAX_CONCURRENT_STREAMS} concurrent streams). "
+                "Close another live view and try again.",
+            )
+        _active_streams += 1
+    logger.info(f"Stream START cam={camera_id} active={_active_streams}/{MAX_CONCURRENT_STREAMS}")
+
+    password = decrypt_secret(cam.cam_password)
+
+    async def _counted_stream():
+        global _active_streams
+        try:
+            async for chunk in mjpeg_generator(
+                stream_url=cam.stream_url or "",
+                username=cam.cam_username,
+                password=password,
+                fps=fps,
+            ):
+                yield chunk
+        finally:
+            async with _streams_lock:
+                _active_streams = max(0, _active_streams - 1)
+            logger.info(f"Stream END   cam={camera_id} active={_active_streams}/{MAX_CONCURRENT_STREAMS}")
+
     return StreamingResponse(
-        mjpeg_generator(
-            stream_url=cam.stream_url or "",
-            username=cam.cam_username,
-            password=cam.cam_password,
-            fps=fps,
-        ),
+        _counted_stream(),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-cache, no-store"},
     )
@@ -449,7 +482,7 @@ async def test_camera_connection(  # noqa
             suggested_fix="Add an RTSP URL in camera settings",
         )
 
-    url = build_rtsp_url(cam.stream_url, cam.cam_username, cam.cam_password)
+    url = build_rtsp_url(cam.stream_url, cam.cam_username, decrypt_secret(cam.cam_password))
     loop = asyncio.get_event_loop()
 
     try:
@@ -507,11 +540,23 @@ async def list_zones(
 
 
 # ─────────────────────────────────────────────
-# CV WORKER INGESTION (internal — no auth for worker simplicity)
-# In production: use an API key header for the CV worker
+# CV WORKER INGESTION (protected by a shared API key)
 # ─────────────────────────────────────────────
+def verify_ingest_key(x_api_key: Optional[str] = Header(None)):
+    """Require the CV worker to present X-API-Key matching INGEST_API_KEY."""
+    if not INGEST_API_KEY:
+        # No key configured → ingestion disabled to avoid an open endpoint
+        raise HTTPException(503, "Ingestion disabled: INGEST_API_KEY not configured")
+    if x_api_key != INGEST_API_KEY:
+        raise HTTPException(401, "Invalid or missing API key")
+
+
 @app.post("/api/ingest/metadata", tags=["CV Worker"])
-async def ingest_metadata(batch: schemas.CVMetadataBatch, db: AsyncSession = Depends(get_db)):
+async def ingest_metadata(
+    batch: schemas.CVMetadataBatch,
+    _=Depends(verify_ingest_key),
+    db: AsyncSession = Depends(get_db),
+):
     for person in batch.tracked_persons:
         await crud.upsert_tracking_session(
             db,

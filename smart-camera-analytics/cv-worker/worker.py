@@ -184,6 +184,7 @@ class CVWorker:
             resp = requests.post(
                 f"{self.backend_url}/api/ingest/metadata",
                 json=payload,
+                headers={"X-API-Key": os.getenv("INGEST_API_KEY", "")},
                 timeout=3
             )
             if resp.status_code == 200:

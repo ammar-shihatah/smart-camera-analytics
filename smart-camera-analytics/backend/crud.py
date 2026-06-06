@@ -10,6 +10,7 @@ from models import (
     Detection, ZoneEvent, Alert, AuditLog, User, Interaction
 )
 import schemas
+from crypto import encrypt_secret
 
 
 def utcnow():
@@ -35,7 +36,9 @@ async def list_branches(db: AsyncSession) -> List[Branch]:
 # CAMERAS
 # ─────────────────────────────────────────────
 async def create_camera(db: AsyncSession, data: schemas.CameraCreate) -> Camera:
-    obj = Camera(**data.model_dump())
+    payload = data.model_dump()
+    payload["cam_password"] = encrypt_secret(payload.get("cam_password"))
+    obj = Camera(**payload)
     db.add(obj)
     await db.commit()
     await db.refresh(obj)
@@ -56,7 +59,10 @@ async def update_camera_status(db: AsyncSession, camera_id: int, data: schemas.C
     cam = await get_camera(db, camera_id)
     if not cam:
         return None
-    for k, v in data.model_dump(exclude_none=True).items():
+    updates = data.model_dump(exclude_none=True)
+    if "cam_password" in updates:
+        updates["cam_password"] = encrypt_secret(updates["cam_password"])
+    for k, v in updates.items():
         setattr(cam, k, v)
     await db.commit()
     await db.refresh(cam)
