@@ -362,13 +362,27 @@ async def get_camera(
 async def update_camera(
     camera_id: int,
     data: schemas.CameraUpdate,
-    _=Depends(require_permission("cameras.manage")),
+    current_user: User = Depends(require_permission("cameras.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     cam = await crud.update_camera_status(db, camera_id, data)
     if not cam:
         raise HTTPException(404, detail="Camera not found")
+    await crud.create_audit_log(db, "camera.updated", user_id=current_user.id, details={"camera_id": camera_id})
     return cam
+
+
+@app.delete("/api/cameras/{camera_id}", tags=["Cameras"])
+async def delete_camera(
+    camera_id: int,
+    current_user: User = Depends(require_permission("cameras.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    ok = await crud.delete_camera(db, camera_id)
+    if not ok:
+        raise HTTPException(404, detail="Camera not found")
+    await crud.create_audit_log(db, "camera.deleted", user_id=current_user.id, details={"camera_id": camera_id})
+    return {"message": "Camera deleted"}
 
 
 # ─────────────────────────────────────────────

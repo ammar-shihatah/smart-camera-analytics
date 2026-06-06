@@ -4,10 +4,10 @@ CRUD operations - Database interaction layer.
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, update, desc
+from sqlalchemy import select, func, and_, update, delete, desc
 from models import (
     Branch, Camera, Zone, TrackingSession,
-    Detection, ZoneEvent, Alert, AuditLog, User
+    Detection, ZoneEvent, Alert, AuditLog, User, Interaction
 )
 import schemas
 
@@ -61,6 +61,27 @@ async def update_camera_status(db: AsyncSession, camera_id: int, data: schemas.C
     await db.commit()
     await db.refresh(cam)
     return cam
+
+async def delete_camera(db: AsyncSession, camera_id: int) -> bool:
+    """
+    Delete a camera and all its dependent records.
+    Children are removed explicitly in FK-safe order so the operation
+    succeeds regardless of whether DB-level ON DELETE CASCADE is present.
+    """
+    cam = await get_camera(db, camera_id)
+    if not cam:
+        return False
+
+    # Delete rows that reference zones first, then the zones, then the camera
+    await db.execute(delete(ZoneEvent).where(ZoneEvent.camera_id == camera_id))
+    await db.execute(delete(Interaction).where(Interaction.camera_id == camera_id))
+    await db.execute(delete(Detection).where(Detection.camera_id == camera_id))
+    await db.execute(delete(TrackingSession).where(TrackingSession.camera_id == camera_id))
+    await db.execute(delete(Alert).where(Alert.camera_id == camera_id))
+    await db.execute(delete(Zone).where(Zone.camera_id == camera_id))
+    await db.execute(delete(Camera).where(Camera.id == camera_id))
+    await db.commit()
+    return True
 
 
 # ─────────────────────────────────────────────

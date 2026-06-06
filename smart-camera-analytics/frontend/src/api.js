@@ -67,6 +67,7 @@ export const api = {
   camera:                (id)       => get(`/api/cameras/${id}`),
   createCamera:          (data)     => post('/api/cameras', data),
   updateCamera:          (id, data) => patch(`/api/cameras/${id}`, data),
+  deleteCamera:          (id)       => del(`/api/cameras/${id}`),
   cameraAnalytics:       (id)       => get(`/api/cameras/${id}/analytics`),
   testCameraConnection:  (id)       => get(`/api/cameras/${id}/test-connection`),
   streamUrl:             (id)       => {
