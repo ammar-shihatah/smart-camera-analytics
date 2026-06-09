@@ -160,10 +160,21 @@ def test_rtsp_sync(url: str) -> dict:
                 ),
             }
 
-        ret, frame = cap.read()
+        frame = None
+        attempts = 0
+        # Some DVRs only deliver a decodable frame after the next keyframe.
+        # Wait a little instead of failing on the first corrupt/incomplete packet.
+        while time.time() - t0 < 12:
+            attempts += 1
+            ret, candidate = cap.read()
+            if ret and candidate is not None:
+                frame = candidate
+                break
+            time.sleep(0.05)
+
         elapsed_ms = int((time.time() - t0) * 1000)
 
-        if not ret or frame is None:
+        if frame is None:
             return {
                 "success": False,
                 "connection_status": "connected_no_frames",
@@ -171,14 +182,16 @@ def test_rtsp_sync(url: str) -> dict:
                 "backend_can_open_stream": False,
                 "error_message": "Connected to the camera but could not read any video frames",
                 "suggested_fix": (
-                    "Check the username/password and the RTSP stream path. "
-                    "Many cameras need a channel-specific path "
-                    "(e.g. /Streaming/Channels/101 or /cam/realmonitor?channel=1&subtype=0)."
+                    "The RTSP port, username, password, and path are reachable, but the video "
+                    "payload is not decodable. On the DVR/NVR, set the selected stream to plain "
+                    "H.264, disable H.265/H.265+/H.264+/Smart Codec, and set I-frame interval "
+                    "close to the FPS value. Then restart the stream and test again."
                 ),
+                "connection_time_ms": elapsed_ms,
             }
 
         h, w = frame.shape[:2]
-        logger.info(f"RTSP test OK: {_mask(url)} {w}x{h} in {elapsed_ms}ms")
+        logger.info(f"RTSP test OK: {_mask(url)} {w}x{h} in {elapsed_ms}ms after {attempts} reads")
         return {
             "success": True,
             "connection_status": "ok",
