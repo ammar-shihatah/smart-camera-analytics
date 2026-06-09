@@ -176,7 +176,29 @@ def _ffmpeg_one_jpeg_sync(url: str, timeout: float = 20.0) -> Optional[bytes]:
     end = out.find(b"\xff\xd9", start + 2)
     if start == -1 or end == -1:
         return None
-    return out[start:end + 2]
+    jpeg = out[start:end + 2]
+    return None if _is_bad_jpeg_frame(jpeg) else jpeg
+
+
+def _is_bad_jpeg_frame(jpeg: bytes) -> bool:
+    """
+    Detect decoder-artifact frames. Some DVRs with H.264+/Smart Codec can
+    produce a solid green image when FFmpeg gets corrupt packets; showing that
+    looks like the app broke, so filter it and show a diagnostic placeholder.
+    """
+    try:
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return True
+        h, w = img.shape[:2]
+        if h < 20 or w < 20:
+            return True
+        mean_b, mean_g, mean_r = img.mean(axis=(0, 1))
+        std = float(img.std())
+        # Solid green decoder output: B/R are near zero, G dominates, variance tiny.
+        return mean_g > 80 and mean_r < 30 and mean_b < 30 and std < 35
+    except Exception:
+        return True
 
 
 async def _drain_stream(stream: asyncio.StreamReader, label: str):
@@ -197,6 +219,10 @@ async def _ffmpeg_mjpeg_generator(url: str, fps: int, boundary: bytes) -> AsyncG
     frame in the multipart boundary expected by browsers.
     """
     placeholder = _make_placeholder("Waiting for FFmpeg", "Decoding RTSP stream...")
+    corrupt_placeholder = _make_placeholder(
+        "Bad DVR Video Frames",
+        "Disable H.265/H.264+/Smart Codec and set I-frame interval = FPS"
+    )
     while True:
         proc = await asyncio.create_subprocess_exec(
             *_ffmpeg_cmd(url, fps=fps),
@@ -233,6 +259,10 @@ async def _ffmpeg_mjpeg_generator(url: str, fps: int, boundary: bytes) -> AsyncG
                         break
                     jpeg = buf[start:end + 2]
                     buf = buf[end + 2:]
+                    if _is_bad_jpeg_frame(jpeg):
+                        if not yielded:
+                            yield boundary + corrupt_placeholder + b"\r\n"
+                        continue
                     yielded = True
                     yield boundary + jpeg + b"\r\n"
         except asyncio.CancelledError:
