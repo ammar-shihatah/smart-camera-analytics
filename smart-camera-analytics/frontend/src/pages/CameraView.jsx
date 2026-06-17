@@ -22,6 +22,7 @@ export default function CameraView() {
   const [streamStatus, setStreamStatus] = useState('loading')
   const [streamKey, setStreamKey] = useState(0)
   const [streamProfile, setStreamProfile] = useState('stored')
+  const [streamTransport, setStreamTransport] = useState('tcp')
   const [testResult, setTestResult] = useState(null)
   const [testing, setTesting] = useState(false)
   const wsRef = useRef(null)
@@ -30,6 +31,7 @@ export default function CameraView() {
     fps: streamProfile === 'main' ? 12 : 20,
     profile: streamProfile,
     quality: streamProfile === 'main' ? 3 : 5,
+    transport: streamTransport,
   })
 
   const testConnection = async () => {
@@ -152,6 +154,25 @@ export default function CameraView() {
               <option value="stored">Saved URL</option>
               <option value="sub">Stable / Sub</option>
               <option value="main">High / Main</option>
+            </select>
+            <select
+              value={streamTransport}
+              onChange={e => {
+                setStreamTransport(e.target.value)
+                setStreamStatus('loading')
+                setStreamKey(k => k + 1)
+              }}
+              style={{
+                padding: '5px 10px',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                color: 'var(--text)',
+                fontSize: 12,
+              }}
+            >
+              <option value="tcp">TCP</option>
+              <option value="udp">UDP</option>
             </select>
             <button onClick={() => { setStreamKey(k => k+1); setStreamStatus('loading') }} style={{ padding: '5px 12px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
               ↺ Reload

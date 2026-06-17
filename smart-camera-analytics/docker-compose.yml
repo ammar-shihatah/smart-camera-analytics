@@ -39,6 +39,8 @@ services:
       INGEST_API_KEY: ${INGEST_API_KEY:-sca-cv-worker-key-change-me}
       # Force RTSP over TCP — UDP is unreliable through Docker's bridge network
       OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp|stimeout;8000000"
+      FFMPEG_ANALYZEDURATION_US: ${FFMPEG_ANALYZEDURATION_US:-2000000}
+      FFMPEG_PROBESIZE: ${FFMPEG_PROBESIZE:-1000000}
       # Max simultaneous browser streams the proxy will serve
       MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-12}
     ports:
@@ -74,6 +76,9 @@ services:
       ANALYSIS_FPS: ${ANALYSIS_FPS:-5}
       ANALYSIS_REFRESH_SECONDS: ${ANALYSIS_REFRESH_SECONDS:-30}
       FALLBACK_DETECTOR: ${FALLBACK_DETECTOR:-motion}
+      RTSP_TRANSPORT: ${RTSP_TRANSPORT:-tcp}
+      FFMPEG_ANALYZEDURATION_US: ${FFMPEG_ANALYZEDURATION_US:-2000000}
+      FFMPEG_PROBESIZE: ${FFMPEG_PROBESIZE:-1000000}
     depends_on:
       - backend
     volumes:

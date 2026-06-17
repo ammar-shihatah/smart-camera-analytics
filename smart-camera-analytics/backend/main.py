@@ -412,6 +412,7 @@ async def camera_stream(  # noqa: C901
     fps: int = Query(15, ge=1, le=30),
     profile: str = Query("stored"),
     quality: int = Query(5, ge=2, le=31),
+    transport: str = Query("tcp"),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -453,6 +454,7 @@ async def camera_stream(  # noqa: C901
                 fps=fps,
                 profile=profile,
                 jpeg_quality=quality,
+                transport=transport,
             ):
                 yield chunk
         finally:

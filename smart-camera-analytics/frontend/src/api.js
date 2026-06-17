@@ -78,6 +78,7 @@ export const api = {
       fps: String(options.fps || 15),
       profile: options.profile || 'stored',
       quality: String(options.quality || 5),
+      transport: options.transport || 'tcp',
     })
     return `${BASE}/api/cameras/${id}/stream?${params.toString()}`
   },

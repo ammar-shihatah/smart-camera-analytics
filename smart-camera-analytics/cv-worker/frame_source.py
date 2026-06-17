@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
 
 
+def _rtsp_transport() -> str:
+    value = os.getenv("RTSP_TRANSPORT", "tcp").lower()
+    return value if value in {"tcp", "udp"} else "tcp"
+
+
 def build_stream_url(stream_url: str, username: Optional[str] = None, password: Optional[str] = None) -> str:
     if not stream_url:
         return ""
@@ -82,12 +87,12 @@ class FrameSource:
             "ffmpeg",
             "-hide_banner",
             "-loglevel", "error",
-            "-rtsp_transport", "tcp",
+            "-rtsp_transport", _rtsp_transport(),
             "-fflags", "+discardcorrupt",
             "-err_detect", "ignore_err",
             "-flags", "low_delay",
-            "-analyzeduration", "10000000",
-            "-probesize", "10000000",
+            "-analyzeduration", os.getenv("FFMPEG_ANALYZEDURATION_US", "2000000"),
+            "-probesize", os.getenv("FFMPEG_PROBESIZE", "1000000"),
             "-i", url,
             "-an",
             "-vf", f"fps={self.fps}",
