@@ -60,6 +60,8 @@ services:
     build:
       context: ./cv-worker
       dockerfile: Dockerfile
+      args:
+        INSTALL_YOLO: ${INSTALL_YOLO:-false}
     container_name: sca_cv_worker
     restart: unless-stopped
     environment:
@@ -71,6 +73,7 @@ services:
       ANALYSIS_CAMERA_IDS: ${ANALYSIS_CAMERA_IDS:-}
       ANALYSIS_FPS: ${ANALYSIS_FPS:-5}
       ANALYSIS_REFRESH_SECONDS: ${ANALYSIS_REFRESH_SECONDS:-30}
+      FALLBACK_DETECTOR: ${FALLBACK_DETECTOR:-motion}
     depends_on:
       - backend
     volumes:

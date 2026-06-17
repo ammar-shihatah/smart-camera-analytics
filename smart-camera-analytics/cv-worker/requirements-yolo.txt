@@ -1,0 +1,3 @@
+# Optional YOLOv8 detector.
+# This pulls large Torch wheels, so it is installed only when INSTALL_YOLO=true.
+ultralytics==8.2.0

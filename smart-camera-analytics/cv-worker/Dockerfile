@@ -13,12 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements.txt requirements-yolo.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+ARG INSTALL_YOLO=false
+RUN if [ "$INSTALL_YOLO" = "true" ]; then \
+      pip install --no-cache-dir -r requirements-yolo.txt && \
+      python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" ; \
+    else \
+      echo "Skipping YOLO install. Set INSTALL_YOLO=true for YOLOv8 detection."; \
+    fi
 
-# Pre-download YOLOv8 nano weights
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" || true
+COPY . .
 
 CMD ["python", "worker.py", "--auto-cameras", "--no-preview"]

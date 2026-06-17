@@ -1,20 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { useAuth } from '../context/AuthContext'
-
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // ─── Single camera stream card ────────────────────────────────────────────────
 function CameraStreamCard({ camera, cols }) {
-  const { token } = useAuth()
   const [streamStatus, setStreamStatus] = useState('loading') // loading | live | error
   const [testResult, setTestResult]     = useState(null)
   const [testing, setTesting]           = useState(false)
   const [streamKey, setStreamKey]       = useState(0)   // bump to reload img
   const imgRef = useRef(null)
 
-  const streamUrl = `${BASE}/api/cameras/${camera.id}/stream?token=${token}&fps=15`
+  const streamUrl = api.streamUrl(camera.id, { fps: 15, profile: 'stored', quality: 5 })
 
   // Detect when the first MJPEG frame loads
   const onImgLoad  = useCallback(() => setStreamStatus('live'), [])

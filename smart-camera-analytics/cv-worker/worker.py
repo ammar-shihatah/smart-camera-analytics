@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
     "analysis_refresh_seconds": int(os.getenv("ANALYSIS_REFRESH_SECONDS", "30")),
     "auto_discover_cameras": os.getenv("AUTO_DISCOVER_CAMERAS", "false").lower() == "true",
     "analysis_camera_ids": os.getenv("ANALYSIS_CAMERA_IDS", ""),
+    "fallback_detector": os.getenv("FALLBACK_DETECTOR", "motion"),
 }
 
 
@@ -80,9 +81,10 @@ class CVWorker:
             self.use_yolo = True
             logger.info(f"✅ YOLOv8 loaded: {config['yolo_model']}")
         except Exception as e:
-            logger.warning(f"⚠️  YOLOv8 not available ({e}). Using fallback HOG detector.")
+            logger.warning(f"⚠️  YOLOv8 not available ({e}). Using fallback detector.")
             self.model = None
             self.use_yolo = False
+        self.fallback_detector = str(config.get("fallback_detector", "motion")).lower()
 
         # Tracker
         self.tracker = CentroidTracker(
@@ -100,6 +102,11 @@ class CVWorker:
         # HOG fallback
         self._hog = cv2.HOGDescriptor()
         self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        self._bg = cv2.createBackgroundSubtractorMOG2(
+            history=120,
+            varThreshold=36,
+            detectShadows=True,
+        )
 
     def fetch_zones(self):
         """Fetch zone definitions from backend."""
@@ -147,6 +154,44 @@ class CVWorker:
                     "bbox": [x*scale, y*scale*1.25, (x+w)*scale, (y+h)*scale*1.25],
                     "confidence": float(weight[0])
                 })
+        return detections
+
+    def detect_motion_blobs(self, frame: np.ndarray) -> List[Dict]:
+        """
+        Lightweight fallback when YOLO is not installed.
+
+        This is not identity recognition and it does not store frames. It gives
+        a practical occupancy signal from moving foreground blobs so analytics
+        can run while the heavier YOLO image is not installed yet.
+        """
+        h, w = frame.shape[:2]
+        small_w = 480
+        scale = w / small_w if w > small_w else 1.0
+        small = cv2.resize(frame, (small_w, int(h / scale))) if scale > 1 else frame
+        mask = self._bg.apply(small)
+        _, mask = cv2.threshold(mask, 220, 255, cv2.THRESH_BINARY)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        detections = []
+        min_area = max(350, int((small.shape[0] * small.shape[1]) * 0.002))
+        max_area = int((small.shape[0] * small.shape[1]) * 0.45)
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area or area > max_area:
+                continue
+            x, y, bw, bh = cv2.boundingRect(contour)
+            if bw < 12 or bh < 24:
+                continue
+            x1, y1, x2, y2 = x * scale, y * scale, (x + bw) * scale, (y + bh) * scale
+            detections.append({
+                "bbox": [x1, y1, x2, y2],
+                "confidence": min(0.9, max(0.25, area / max(min_area, 1) * 0.25)),
+            })
+
         return detections
 
     def send_metadata(self, frame_people_count: int, tracked_persons, frame_shape):
@@ -304,8 +349,10 @@ class CVWorker:
             # Detect persons
             if self.use_yolo:
                 detections = self.detect_persons_yolo(frame)
-            else:
+            elif self.fallback_detector == "hog":
                 detections = self.detect_persons_hog(frame)
+            else:
+                detections = self.detect_motion_blobs(frame)
 
             # Update tracker
             tracked = self.tracker.update(detections, self.zones, frame_w, frame_h)

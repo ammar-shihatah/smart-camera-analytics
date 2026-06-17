@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { api, createCameraWS } from '../api'
-import { useAuth } from '../context/AuthContext'
 import StatCard from '../components/StatCard'
 
 const EXPR_LABELS = {
@@ -12,7 +11,6 @@ const EXPR_LABELS = {
 
 export default function CameraView() {
   const { id } = useParams()
-  const { token } = useAuth()
   const camId = parseInt(id)
   const [camera, setCamera] = useState(null)
   const [zones, setZones] = useState([])
@@ -23,12 +21,16 @@ export default function CameraView() {
   const [zoneForm, setZoneForm] = useState({ name: '', type: 'counter', polygon_json: '[[100,100],[500,100],[500,400],[100,400]]' })
   const [streamStatus, setStreamStatus] = useState('loading')
   const [streamKey, setStreamKey] = useState(0)
+  const [streamProfile, setStreamProfile] = useState('stored')
   const [testResult, setTestResult] = useState(null)
   const [testing, setTesting] = useState(false)
   const wsRef = useRef(null)
 
-  const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const streamUrl = `${BASE}/api/cameras/${camId}/stream?token=${token}&fps=20`
+  const streamUrl = api.streamUrl(camId, {
+    fps: streamProfile === 'main' ? 12 : 20,
+    profile: streamProfile,
+    quality: streamProfile === 'main' ? 3 : 5,
+  })
 
   const testConnection = async () => {
     setTesting(true)
@@ -131,6 +133,26 @@ export default function CameraView() {
             {streamStatus === 'error'   && <span style={{ fontSize: 11, color: '#ff4d6d', fontFamily: 'Space Mono' }}>● NO SIGNAL</span>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <select
+              value={streamProfile}
+              onChange={e => {
+                setStreamProfile(e.target.value)
+                setStreamStatus('loading')
+                setStreamKey(k => k + 1)
+              }}
+              style={{
+                padding: '5px 10px',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                color: 'var(--text)',
+                fontSize: 12,
+              }}
+            >
+              <option value="stored">Saved URL</option>
+              <option value="sub">Stable / Sub</option>
+              <option value="main">High / Main</option>
+            </select>
             <button onClick={() => { setStreamKey(k => k+1); setStreamStatus('loading') }} style={{ padding: '5px 12px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
               ↺ Reload
             </button>

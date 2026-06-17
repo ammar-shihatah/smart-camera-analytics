@@ -410,6 +410,8 @@ async def camera_stream(  # noqa: C901
     camera_id: int,
     token: Optional[str] = Query(None),
     fps: int = Query(15, ge=1, le=30),
+    profile: str = Query("stored"),
+    quality: int = Query(5, ge=2, le=31),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -449,6 +451,8 @@ async def camera_stream(  # noqa: C901
                 username=cam.cam_username,
                 password=password,
                 fps=fps,
+                profile=profile,
+                jpeg_quality=quality,
             ):
                 yield chunk
         finally:
@@ -509,7 +513,7 @@ async def test_camera_connection(  # noqa
         }
 
     # Persist status + last_error back to camera
-    cam.status = "online" if result["success"] else cam.status
+    cam.status = "online" if result["success"] else "error"
     cam.last_error = result.get("error_message") if not result["success"] else None
     if result["success"]:
         cam.last_connected_at = datetime.now(timezone.utc)

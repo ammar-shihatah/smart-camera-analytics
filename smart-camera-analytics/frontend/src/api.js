@@ -70,10 +70,16 @@ export const api = {
   deleteCamera:          (id)       => del(`/api/cameras/${id}`),
   cameraAnalytics:       (id)       => get(`/api/cameras/${id}/analytics`),
   testCameraConnection:  (id)       => get(`/api/cameras/${id}/test-connection`),
-  streamUrl:             (id)       => {
+  streamUrl:             (id, options = {})       => {
     const token = localStorage.getItem('sca_token')
     const BASE  = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-    return `${BASE}/api/cameras/${id}/stream?token=${token}&fps=15`
+    const params = new URLSearchParams({
+      token: token || '',
+      fps: String(options.fps || 15),
+      profile: options.profile || 'stored',
+      quality: String(options.quality || 5),
+    })
+    return `${BASE}/api/cameras/${id}/stream?${params.toString()}`
   },
 
   // Branches
