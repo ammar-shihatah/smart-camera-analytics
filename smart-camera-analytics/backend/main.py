@@ -39,12 +39,14 @@ _streams_lock = asyncio.Lock()
 INGEST_API_KEY = os.getenv("INGEST_API_KEY", "")
 
 # ── OpenCV / streaming (optional — backend works without it) ──────────────────
+OPENCV_INSTALLED = False
 STREAM_AVAILABLE = False
 OPENCV_VERSION: Optional[str] = None
 _stream_import_error: str = ""
 
 try:
     import cv2
+    OPENCV_INSTALLED = True
     OPENCV_VERSION = cv2.__version__
     logger.info(f"✅ OpenCV {OPENCV_VERSION} loaded successfully")
     from stream_manager import mjpeg_generator, test_rtsp_sync, build_rtsp_url
@@ -55,6 +57,12 @@ except ImportError as _e:
 except Exception as _e:
     _stream_import_error = str(_e)
     logger.error(f"❌ Unexpected error loading OpenCV: {_e}", exc_info=True)
+
+
+def _stream_unavailable_detail() -> str:
+    if not OPENCV_INSTALLED:
+        return "Streaming not available: OpenCV is not installed in the backend container"
+    return f"Streaming not available: {_stream_import_error or 'stream manager failed to load'}"
 
 # In-memory store for password reset tokens (use Redis in production)
 _reset_tokens: dict[str, int] = {}  # token → user_id
@@ -141,7 +149,7 @@ async def system_health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "opencv_installed": STREAM_AVAILABLE,
+        "opencv_installed": OPENCV_INSTALLED,
         "opencv_version": OPENCV_VERSION or "not installed",
         "ffmpeg_available": ffmpeg_available,
         "streaming_enabled": STREAM_AVAILABLE,
@@ -409,7 +417,7 @@ async def camera_stream(  # noqa: C901
     Converts RTSP → MJPEG so browsers can display it without plugins.
     """
     if not STREAM_AVAILABLE:
-        raise HTTPException(503, "Streaming not available — OpenCV not installed")
+        raise HTTPException(503, _stream_unavailable_detail())
 
     user = await _ws_auth(token, db)
     if not user:
@@ -466,7 +474,7 @@ async def test_camera_connection(  # noqa
     Returns detailed diagnostic info including suggested fixes.
     """
     if not STREAM_AVAILABLE:
-        raise HTTPException(503, "Streaming not available — OpenCV not installed")
+        raise HTTPException(503, _stream_unavailable_detail())
 
     cam = await crud.get_camera(db, camera_id)
     if not cam:
@@ -549,6 +557,44 @@ def verify_ingest_key(x_api_key: Optional[str] = Header(None)):
         raise HTTPException(503, "Ingestion disabled: INGEST_API_KEY not configured")
     if x_api_key != INGEST_API_KEY:
         raise HTTPException(401, "Invalid or missing API key")
+
+
+@app.get("/internal/cameras/analysis-config", tags=["CV Worker"])
+async def analysis_camera_config(
+    _=Depends(verify_ingest_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Internal camera list for the CV worker.
+
+    This intentionally returns decrypted camera credentials, so it is protected
+    by INGEST_API_KEY and must never be exposed to browsers.
+    """
+    cameras = await crud.list_cameras(db)
+    return {
+        "cameras": [
+            {
+                "id": cam.id,
+                "name": cam.name,
+                "stream_url": cam.stream_url,
+                "cam_username": cam.cam_username,
+                "cam_password": decrypt_secret(cam.cam_password),
+                "status": cam.status,
+            }
+            for cam in cameras
+            if cam.stream_url and cam.status != "maintenance"
+        ]
+    }
+
+
+@app.get("/internal/cameras/{camera_id}/zones", tags=["CV Worker"])
+async def internal_camera_zones(
+    camera_id: int,
+    _=Depends(verify_ingest_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Internal zone definitions for the CV worker without requiring JWT."""
+    return await crud.list_zones(db, camera_id)
 
 
 @app.post("/api/ingest/metadata", tags=["CV Worker"])

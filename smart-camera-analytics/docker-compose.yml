@@ -67,14 +67,17 @@ services:
       CAMERA_ID: ${CV_CAMERA_ID:-1}
       VIDEO_SOURCE: ${VIDEO_SOURCE:-0}
       INGEST_API_KEY: ${INGEST_API_KEY:-sca-cv-worker-key-change-me}
+      AUTO_DISCOVER_CAMERAS: ${AUTO_DISCOVER_CAMERAS:-true}
+      ANALYSIS_CAMERA_IDS: ${ANALYSIS_CAMERA_IDS:-}
+      ANALYSIS_FPS: ${ANALYSIS_FPS:-5}
+      ANALYSIS_REFRESH_SECONDS: ${ANALYSIS_REFRESH_SECONDS:-30}
     depends_on:
       - backend
     volumes:
       - ./cv-worker:/app
       - ./videos:/videos:ro   # mount local video files for testing
-    # Remove `profiles` to always start, or keep to start manually:
-    profiles:
-      - worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ─────────────────────────────────────────────
   # React Frontend

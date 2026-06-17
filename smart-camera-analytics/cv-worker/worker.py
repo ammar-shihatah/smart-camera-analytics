@@ -18,7 +18,6 @@ Usage:
     python worker.py --source rtsp://192.168.1.100:554/stream1 --camera-id 1
 """
 import os
-import sys
 import json
 import time
 import logging
@@ -31,6 +30,7 @@ import cv2
 import numpy as np
 import requests
 
+from frame_source import FrameSource
 from tracker import CentroidTracker
 from expression_utils import analyze_apparent_expression, load_face_detector
 from zone_utils import get_zone_for_point
@@ -56,14 +56,20 @@ DEFAULT_CONFIG = {
     "frame_skip": 2,                       # process every Nth frame
     "max_tracker_distance": 80,
     "max_tracker_disappeared": 25,
+    "analysis_fps": int(os.getenv("ANALYSIS_FPS", "5")),
+    "analysis_refresh_seconds": int(os.getenv("ANALYSIS_REFRESH_SECONDS", "30")),
+    "auto_discover_cameras": os.getenv("AUTO_DISCOVER_CAMERAS", "false").lower() == "true",
+    "analysis_camera_ids": os.getenv("ANALYSIS_CAMERA_IDS", ""),
 }
 
 
 class CVWorker:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, stop_event: Optional[threading.Event] = None):
         self.config = config
         self.camera_id: int = config["camera_id"]
         self.backend_url: str = config["backend_url"].rstrip("/")
+        self.ingest_api_key: str = os.getenv("INGEST_API_KEY", "")
+        self.stop_event = stop_event or threading.Event()
         self.zones: List[Dict] = []
 
         # YOLOv8 model
@@ -99,7 +105,8 @@ class CVWorker:
         """Fetch zone definitions from backend."""
         try:
             resp = requests.get(
-                f"{self.backend_url}/api/cameras/{self.camera_id}/zones",
+                f"{self.backend_url}/internal/cameras/{self.camera_id}/zones",
+                headers={"X-API-Key": self.ingest_api_key},
                 timeout=5
             )
             if resp.status_code == 200:
@@ -184,7 +191,7 @@ class CVWorker:
             resp = requests.post(
                 f"{self.backend_url}/api/ingest/metadata",
                 json=payload,
-                headers={"X-API-Key": os.getenv("INGEST_API_KEY", "")},
+                headers={"X-API-Key": self.ingest_api_key},
                 timeout=3
             )
             if resp.status_code == 200:
@@ -250,17 +257,22 @@ class CVWorker:
             pass
 
         logger.info(f"🎥 Opening video source: {source}")
-        cap = cv2.VideoCapture(source)
+        cap = FrameSource(
+            source,
+            username=self.config.get("cam_username"),
+            password=self.config.get("cam_password"),
+            fps=self.config.get("analysis_fps", 5),
+        )
 
-        if not cap.isOpened():
+        if not cap.open():
             logger.error(f"❌ Cannot open video source: {source}")
-            sys.exit(1)
+            return
 
         # Fetch zones from backend
         self.fetch_zones()
 
-        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
         logger.info(f"📐 Stream: {frame_w}x{frame_h} @ {fps:.1f}fps")
 
@@ -270,19 +282,20 @@ class CVWorker:
 
         logger.info("▶️  CV Worker started. Press Q to stop.")
 
-        while True:
+        while not self.stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
                 # End of video file - loop back
-                if isinstance(source, str):
+                if isinstance(source, str) and not source.lower().startswith("rtsp://"):
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                 else:
                     logger.warning("Frame read failed. Retrying...")
-                    time.sleep(0.1)
+                    time.sleep(1.0)
                     continue
 
             frame_count += 1
+            frame_h, frame_w = frame.shape[:2]
 
             # Skip frames for performance
             if frame_count % frame_skip != 0:
@@ -324,6 +337,97 @@ class CVWorker:
 # ─────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────
+def fetch_analysis_cameras(backend_url: str, ingest_api_key: str) -> List[Dict]:
+    """Fetch camera configs for background analysis from the protected internal API."""
+    resp = requests.get(
+        f"{backend_url.rstrip('/')}/internal/cameras/analysis-config",
+        headers={"X-API-Key": ingest_api_key},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json().get("cameras", [])
+
+
+def run_worker_thread(cam_config: dict, stop_event: threading.Event):
+    try:
+        CVWorker(cam_config, stop_event=stop_event).run()
+    except Exception as exc:
+        logger.exception(f"Analysis worker crashed for camera {cam_config.get('camera_id')}: {exc}")
+
+
+def run_auto_discovery(config: dict):
+    backend_url = config["backend_url"].rstrip("/")
+    ingest_api_key = os.getenv("INGEST_API_KEY", "")
+    refresh_seconds = max(5, int(config.get("analysis_refresh_seconds", 30)))
+    allowed_ids = {
+        int(x.strip()) for x in str(config.get("analysis_camera_ids") or "").split(",")
+        if x.strip().isdigit()
+    }
+
+    active_workers: Dict[int, Dict] = {}
+    logger.info(f"Auto camera analysis enabled. Refreshing camera config every {refresh_seconds}s")
+
+    try:
+        while True:
+            try:
+                cameras = fetch_analysis_cameras(backend_url, ingest_api_key)
+                if allowed_ids:
+                    cameras = [cam for cam in cameras if int(cam["id"]) in allowed_ids]
+            except Exception as exc:
+                logger.warning(f"Could not fetch analysis camera config: {exc}")
+                time.sleep(refresh_seconds)
+                continue
+
+            desired = {int(cam["id"]): cam for cam in cameras}
+
+            for cam_id, worker_state in list(active_workers.items()):
+                thread = worker_state["thread"]
+                should_stop = cam_id not in desired
+                crashed = not thread.is_alive()
+                if should_stop or crashed:
+                    if should_stop:
+                        logger.info(f"Stopping analysis for removed camera {cam_id}")
+                    else:
+                        logger.warning(f"Analysis worker for camera {cam_id} stopped; it will restart if still configured")
+                    worker_state["stop_event"].set()
+                    thread.join(timeout=5)
+                    active_workers.pop(cam_id, None)
+
+            for cam_id, cam in desired.items():
+                if cam_id in active_workers:
+                    continue
+
+                cam_config = config.copy()
+                cam_config.update({
+                    "camera_id": cam_id,
+                    "video_source": cam["stream_url"],
+                    "cam_username": cam.get("cam_username"),
+                    "cam_password": cam.get("cam_password"),
+                    "show_preview": False,
+                })
+                stop_event = threading.Event()
+                thread = threading.Thread(
+                    target=run_worker_thread,
+                    args=(cam_config, stop_event),
+                    name=f"camera-{cam_id}-analysis",
+                    daemon=False,
+                )
+                thread.start()
+                active_workers[cam_id] = {"thread": thread, "stop_event": stop_event}
+                logger.info(f"Started analysis for camera {cam_id} ({cam.get('name', 'unnamed')})")
+
+            if not active_workers:
+                logger.warning("No cameras currently available for analysis.")
+
+            time.sleep(refresh_seconds)
+    except KeyboardInterrupt:
+        logger.info("Stopping all analysis workers...")
+        for worker_state in active_workers.values():
+            worker_state["stop_event"].set()
+        for worker_state in active_workers.values():
+            worker_state["thread"].join(timeout=5)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Smart Camera Analytics CV Worker")
     parser.add_argument("--config", type=str, help="Path to config JSON file")
@@ -331,6 +435,7 @@ def main():
     parser.add_argument("--camera-id", type=int, help="Backend camera ID")
     parser.add_argument("--backend-url", type=str, help="Backend URL")
     parser.add_argument("--no-preview", action="store_true", help="Disable local preview window")
+    parser.add_argument("--auto-cameras", action="store_true", help="Analyze cameras from backend internal config")
     args = parser.parse_args()
 
     config = DEFAULT_CONFIG.copy()
@@ -350,10 +455,16 @@ def main():
         config["backend_url"] = args.backend_url
     if args.no_preview:
         config["show_preview"] = False
+    if args.auto_cameras:
+        config["auto_discover_cameras"] = True
 
-    worker = CVWorker(config)
-    worker.run()
+    if config.get("auto_discover_cameras"):
+        run_auto_discovery(config)
+    else:
+        worker = CVWorker(config)
+        worker.run()
 
 
 if __name__ == "__main__":
     main()
+
